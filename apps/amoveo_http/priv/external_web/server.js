@@ -14,6 +14,8 @@ var server_port = document.createElement("INPUT");
 server_port.value = "8080"; // server
 //server_port.value = document.URL.split(":")[2].substring(0, 4);
 server_port.id = "chanel-port";
+//server_port.value = "8080";// server
+// server_port.value = document.URL.split(":")[2].substring(0, 4);
 server_port.setAttribute("type", "text");
 var server_port_info = document.createElement("label");
 server_port_info.htmlFor = "chanel-port";

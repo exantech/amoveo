@@ -24,3 +24,4 @@ man
 compile_commands.json
 deps/*
 rebar.lock
+.DS_Store

@@ -90,9 +90,9 @@ handle_call({combine_cancel_assets_server, TheirPub, SSPK2}, _From, X) ->
     SPK = testnet_sign:data(SSPK),
     SPK2 = testnet_sign:data(SSPK2),
     io:fwrite("combine cancel assets spks should match\n"),
-    io:fwrite(packer:pack(SPK)),
+    io:fwrite(packer:pack(SPK)),%didn't close any bets
     io:fwrite("\n"),
-    io:fwrite(packer:pack(SPK2)),
+    io:fwrite(packer:pack(SPK2)),%closes 2 bets. this is correct. This was generated in javascript.
     io:fwrite("\n"),
     SPK = SPK2,
     Bets = (OldCD#cd.me)#spk.bets,
@@ -110,7 +110,11 @@ handle_call({cancel_trade_server, N, TheirPub, SSPK2}, _From, X) ->
     Bet = element(N-1, list_to_tuple(Bets)),
     {Type, Price} = Bet#bet.meta,
     CodeKey = Bet#bet.key,
-    {market, 1, _, _, _, _, OID} = CodeKey,
+    OID = case CodeKey of
+	      {market, 1, _, _, _, _, Z} -> Z;
+	      {market, 2, _, _, _, _, Y, _, _} -> Y
+	  end,
+    %{market, 1, _, _, _, _, OID} = CodeKey,
     NewCD = OldCD#cd{them = SSPK2, me = SPK,
                      ssme = spk:remove_nth(N-1, OldCD#cd.ssme),
                      ssthem = spk:remove_nth(N-1, OldCD#cd.ssthem)},
@@ -145,7 +149,7 @@ handle_call({trade, ID, Price, Type, Amount, OID, SSPK, Fee}, _From, X) ->%id is
     io:fwrite(packer:pack(keys:sign(SSPK))),
     io:fwrite("\n"),
     io:fwrite("channel feeder serialized\n"),
-    io:fwrite(sign:serialize(testnet_sign:data(SSPK))),
+    io:fwrite(base64:encode(sign:serialize(testnet_sign:data(SSPK)))),
     io:fwrite("\n"),
     true = testnet_sign:verify(keys:sign(SSPK)),%breaks here
     true = Amount > 0,
@@ -427,17 +431,28 @@ cancel_trade_common(N, OldCD) ->
     SPK2 = spk:remove_bet(N-1, SPK),
     SPK3 = SPK2#spk{nonce = SPK2#spk.nonce + 1000000},
     keys:sign(SPK3).
-matchable(Bet, SS) ->
+matchable(Bet, SS) ->%combine-cancelable.
+    io:fwrite("matchable\n"),
     SSC = SS#ss.code,
     BK = Bet#bet.key,
     {Direction, Price} = Bet#bet.meta,
     Price2 = SS#ss.meta,
     if 
-        SSC == <<0,0,0,0,4>> -> false; %unmatched.
-        not(size(BK) == 7) -> false; %not a market contract
-        not(element(1, BK) == market) -> false; %not a market contract
-        not(element(2, BK) == 1) -> false; %not a standard market contract
-        Price2 == Price -> false; %bet is only partially matched.
+        SSC == <<0,0,0,0,4>> -> 
+	    io:fwrite("unmatched open order cannot be combine canceled.\n"),
+	    false; %unmatched open order cannot be combine canceled.
+        ((not(size(BK) == 7)) and (not(size(BK) == 9)))-> 
+	    io:fwrite("not a market contract.\n"),
+	    false; %not a market contract
+        not(element(1, BK) == market) -> 
+	    io:fwrite("not a market contract 2.\n"),
+	    false; %not a market contract
+        ((not(element(2, BK) == 1)) and (not(element(2, BK) == 2)))-> 
+	    io:fwrite("not a standard market type.\n"),
+	    false; %not a standard market contract
+        Price2 == Price -> 
+	    io:fwrite("bet is partially matched"),
+	    false; %bet is only partially matched.
         true -> true
     end.
 combine_cancel_common(OldCD) ->
@@ -495,7 +510,8 @@ combine_cancel_common4(Bet, SSM, [BH|BT], [MH|MT], BO, MO) ->
              lists:reverse([MH|MT]) ++ MO};
         not(B) or
         not(OID == OID2) or %must be same market to match
-        (Direction1 == Direction2) -> %must be opposite directions to match
+        (Direction1 == Direction2) or %must be opposite directions to match
+	not(element(2, Key1) == element(2, Key2)) -> %must be same kind of market to match
             io:fwrite("not matchable or different oracle, or different direction \n"),
             combine_cancel_common4(Bet, SSM, BT, MT, [BH|BO], [MH|MO]);
         true -> 
@@ -516,9 +532,11 @@ combine_cancel_common4(Bet, SSM, [BH|BT], [MH|MT], BO, MO) ->
             end
     end.
 bets_unlock(X) -> 
+    %io:fwrite("bets unlock\n"),
     bets_unlock2(X, []).
 bets_unlock2([], Out) -> Out;
 bets_unlock2([ID|T], OutT) ->
+    %io:fwrite("bets unlock2\n"),
     {ok, CD0} = channel_manager:read(ID),
     true = CD0#cd.live,
     SPKME = CD0#cd.me,
